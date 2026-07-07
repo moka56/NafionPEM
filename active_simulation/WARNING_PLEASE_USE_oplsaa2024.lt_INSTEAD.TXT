@@ -1,0 +1,7 @@
+    The "oplsaa.lt" file is being deprecated and will be removed soon.
+    So in the future, please use "import oplsaa2024.lt"
+    (instead of "import oplsaa.lt") in all of your .lt files.
+
+    Why? All future versions of the OPLSAA force field file will be given unique
+    names (eg "oplsaa2008.lt", "oplsaa2024.lt").  This will protect users from
+    changes in the 991 type numbers (which vary according to the version).

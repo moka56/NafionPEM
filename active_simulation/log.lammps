@@ -1,0 +1,302 @@
+LAMMPS (10 Dec 2025)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread.
+  using 1 OpenMP thread(s) per MPI task
+# ==========================================
+# LAMMPS Input Script: Nafion/Water Dynamic Equilibrium
+# All Calculations Included: Swelling, Diffusion, & Channels
+# ==========================================
+
+units           real
+atom_style      full
+bond_style      harmonic
+
+# 1. Force Field Styles (Lennard-Jones + Electrostatics)
+pair_style      lj/cut/coul/cut 10.0 10.0
+pair_modify     mix geometric
+
+read_data       system.data
+Reading data file ...
+  orthogonal box = (-2.52788 -2.58007 -2.48749) to (52.5013 52.5297 52.5405)
+  2 by 2 by 1 MPI processor grid
+  reading atoms ...
+  4500 atoms
+  scanning bonds ...
+  4 = max bonds/atom
+  orthogonal box = (-2.52788 -2.58007 -2.48749) to (52.5013 52.5297 52.5405)
+  2 by 2 by 1 MPI processor grid
+  reading bonds ...
+  3280 bonds
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0        0        0       
+  special bond factors coul:  0        0        0       
+     5 = max # of 1-2 neighbors
+     7 = max # of 1-3 neighbors
+    15 = max # of 1-4 neighbors
+    20 = max # of special neighbors
+  special bonds CPU = 0.002 seconds
+  read_data CPU = 0.119 seconds
+
+# --- Force Field Parameters ---
+mass            1 12.011  # C
+mass            2 18.998  # F
+mass            3 15.999  # O
+mass            4 32.060  # S
+mass            5 1.008   # H (Polymer)
+mass            6 15.999  # O (Water)
+mass            7 1.008   # H (Water)
+
+pair_coeff      1 1 0.066 3.500
+pair_coeff      2 2 0.053 2.950
+pair_coeff      3 3 0.140 2.900
+pair_coeff      4 4 0.250 3.550
+pair_coeff      5 5 0.030 2.500
+pair_coeff      6 6 0.152 3.151
+pair_coeff      7 7 0.046 0.400
+
+bond_coeff      1 300.0 1.54  # cc
+bond_coeff      2 300.0 1.35  # cf
+bond_coeff      3 300.0 1.41  # co
+bond_coeff      4 300.0 1.41  # oc
+bond_coeff      5 300.0 1.81  # cs
+bond_coeff      6 300.0 1.43  # so
+bond_coeff      7 300.0 0.96  # oh
+bond_coeff      8 450.0 0.9572 # oh (Water)
+
+# --- PHASE 1: Structure Relaxation (Absolute Zero) ---
+velocity        all set 0.0 0.0 0.0
+minimize        1.0e-4 1.0e-6 100 1000
+Generated 21 of 21 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 6, bins = 10 10 10
+  1 neighbor lists, perpetual/occasional/extra = 1 0 0
+  (1) pair lj/cut/coul/cut, perpetual
+      attributes: half, newton on
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 9.439 | 9.459 | 9.467 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press     
+         0   0              2582592.9      2735.9494      2585328.8      4181955.9    
+        54   0              4190.3833      516.25973      4706.6431     -3030.5884    
+Loop time of 0.580112 on 4 procs for 54 steps with 4500 atoms
+
+94.5% CPU use with 4 MPI tasks x 1 OpenMP threads
+
+Minimization stats:
+  Stopping criterion = energy tolerance
+  Energy initial, next-to-last, final = 
+      2585328.81916331   4706.73007354707   4706.64307068541
+  Force two-norm initial, final = 8442669.1 407.39793
+  Force max component initial, final = 1328124.2 93.038709
+  Final line search alpha, max atom move = 5.2397345e-07 4.8749813e-05
+  Iterations, force evaluations = 54 71
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.31101    | 0.3463     | 0.38384    |   4.6 | 59.70
+Bond    | 0.001796   | 0.0050382  | 0.014037   |   7.3 |  0.87
+Neigh   | 0.017556   | 0.017584   | 0.017621   |   0.0 |  3.03
+Comm    | 0.15366    | 0.18237    | 0.22646    |   6.4 | 31.44
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 0.02882    |            |       |  4.97
+
+Nlocal:           1125 ave        1262 max        1049 min
+Histogram: 2 0 0 1 0 0 0 0 0 1
+Nghost:        4162.25 ave        4298 max        4057 min
+Histogram: 1 0 0 2 0 0 0 0 0 1
+Neighs:         126908 ave      147205 max      111339 min
+Histogram: 2 0 0 0 0 0 1 0 0 1
+
+Total # of neighbors = 507633
+Ave neighs/atom = 112.80733
+Ave special neighs/atom = 3.68
+Neighbor list builds = 2
+Dangerous builds = 0
+
+# --- PHASE 2: Production Setup ---
+# Group water oxygen atoms for specialized tracking
+group           water_ox type 6
+1200 atoms in group water_ox
+
+# A. Compute MSD (for plot_diffusion.py)
+compute         water_diffusion water_ox msd
+
+# B. Compute Channels (for visualization tracking)
+compute         channel_count water_ox cluster/atom 3.5
+
+# Assign initial thermal velocities at 300K
+velocity        all create 300.0 4928459 mom yes rot yes dist gaussian
+
+# C. Set up NPT Ensemble (Constant Pressure allows box to expand/swell)
+# Maintains 300K temperature and 1 atmosphere of pressure
+fix             1 all npt temp 300.0 300.0 100.0 iso 1.0 1.0 1000.0
+
+timestep        1.0
+
+# Setup log layout columns
+thermo_style    custom step temp epair c_water_diffusion[4] press vol
+thermo        5000
+
+# --- PHASE 3: Data File Exports ---
+
+# Export Diffusion MSD Data table
+fix             msd_out all print 5000 "$(step) $(c_water_diffusion[4])" file water_msd.dat screen no title "Step Total_MSD"
+
+# Export Swelling Volume Data table
+fix             vol_out all print 5000 "$(step) $(vol)" file volume_swelling.dat screen no title "Step Volume"
+
+# Apply an electric field of 0.1 Volts/Angstrom in the X-direction
+fix             electric_drive all efield 0.1 0.0 0.0
+
+# 1. Sum up the individual velocities (vx, vy, vz) of your water oxygens
+compute         v_sum water_ox reduce sum vx vy vz
+
+# 2. Extract those values into variables (divided by number of atoms to get the average)
+variable        num_atoms equal count(water_ox)
+variable        avg_vx equal c_v_sum[1]/v_num_atoms
+variable        avg_vy equal c_v_sum[2]/v_num_atoms
+variable        avg_vz equal c_v_sum[3]/v_num_atoms
+
+# 3. Export these average drift velocities cleanly every 1000 steps
+fix             vel_out all print 5000 "$(step) $(v_avg_vx) $(v_avg_vy) $(v_avg_vz)" file water_velocity.dat screen no title "Step Avg_Vx Avg_Vy Avg_Vz"
+
+
+# Record trajectory frames for Windows OVITO
+dump            myDump all custom 10000 trajectory.lammpstrj id mol type q x y z
+
+# Run for 1000000 steps to yield a clean, readable data set
+run             1000000
+Generated 21 of 21 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 6, bins = 10 10 10
+  2 neighbor lists, perpetual/occasional/extra = 1 1 0
+  (1) pair lj/cut/coul/cut, perpetual
+      attributes: half, newton on
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+  (2) compute cluster/atom, occasional
+      attributes: full, newton on
+      pair build: full/bin
+      stencil: full/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 9.32 | 9.341 | 9.349 Mbytes
+   Step          Temp          E_pair     c_water_diffusion[4]     Press          Volume    
+        54   300            4190.3833      0             -1928.544       166880.38    
+      5000   299.764       -50046.504      657.66049      222.51876      282723.64    
+     10000   301.85425     -47116.315      6482.7525      248.34878      557884.65    
+     15000   301.89718     -48757.12       24496.604      93.260165      1198103.1    
+     20000   303.26698     -47841.896      63830.559      56.423718      2485851.7    
+     25000   307.42946     -46877.998      143645.56      31.164753      5309289.9    
+     30000   311.94155     -47348.237      290772.24      14.562296      11131494     
+     35000   312.12771     -46987.021      542879.72      7.3629153      22591096     
+     40000   312.25107     -47499.044      942492.24      3.5737972      43571117     
+     45000   312.4697      -46741.454      1510952.2      2.260781       77495383     
+     50000   312.78563     -47005.947      2192434.7      1.4339005      1.2171273e+08
+     55000   313.12521     -47153.367      2821472.9      1.0498689      1.6215357e+08
+     60000   313.3908      -46887.337      3227374.5      0.97807818     1.8255529e+08
+     65000   313.42783     -46463.273      3424735.1      1.0413193      1.8433622e+08
+     70000   313.27858     -47335.141      3580581.8      0.93348062     1.823659e+08 
+     75000   313.44685     -46653.579      3792018.8      1.0243887      1.8430538e+08
+     80000   313.29073     -47163.626      3932058.2      0.99213921     1.8076359e+08
+     85000   313.41445     -46578.047      4193701.3      1.0407251      1.8527154e+08
+     90000   313.34637     -46593.188      4296453.5      1.0507788      1.7907367e+08
+     95000   313.32487     -47030.23       4609490        0.99642267     1.8574572e+08
+    100000   313.42174     -46549.273      4689913.2      1.1038942      1.7826255e+08
+    105000   313.13214     -47061.204      5026253.1      0.97324622     1.8511922e+08
+    110000   313.58413     -47606.401      5135191.8      0.95788306     1.7931029e+08
+    115000   313.07743     -46965.121      5425328.4      1.0007552      1.8273196e+08
+    120000   313.7101      -46942.083      5628224.2      1.0268077      1.8158011e+08
+    125000   312.99077     -46963.573      5823348.6      1.0212241      1.7979018e+08
+    130000   313.7135      -47082.633      6154717.6      1.0181322      1.841512e+08 
+    135000   313.04476     -46961.656      6237656.9      1.0615636      1.7719368e+08
+    140000   313.64488     -47231.88       6690654.3      0.97971924     1.8594273e+08
+    145000   313.10569     -47608.794      6699599.2      0.97939477     1.7612625e+08
+    150000   313.4993      -46970.74       7206259.3      1.0258317      1.8594841e+08
+    155000   313.30959     -47586.963      7215540.5      0.97448971     1.7650384e+08
+    160000   313.33115     -47115.633      7701709.7      1.0233656      1.8453338e+08
+    165000   313.41513     -46752.955      7791861.7      1.0907952      1.7825596e+08
+    170000   313.24189     -47346.881      8190861.2      0.9951877      1.8246541e+08
+    175000   313.48861     -47307.978      8399659.6      1.0022328      1.801895e+08 
+    180000   313.23195     -47206.871      8701022.2      1.0253478      1.8073686e+08
+    185000   313.47787     -47190.116      9011580.8      1.0161076      1.8143835e+08
+    190000   313.26049     -47678.578      9255416.4      0.97252668     1.7996922e+08
+    195000   313.41868     -47514.781      9611237.6      0.99048249     1.816537e+08 
+    200000   313.30004     -47038.545      9857948.9      1.0752109      1.8009581e+08
+    205000   313.35581     -47340.09       10213877       1.0135338      1.81421e+08  
+    210000   313.30706     -47768.431      10488521       0.96403363     1.8044489e+08
+    215000   313.35689     -47676.285      10827980       0.9970476      1.8103164e+08
+    220000   313.36096     -47122.24       11136136       1.0451346      1.807097e+08 
+    225000   313.34897     -47217.043      11467957       1.0326873      1.8085249e+08
+    230000   313.34801     -47922.192      11795987       0.97391111     1.8079312e+08
+    235000   313.33161     -47463.52       12131997       1.0146122      1.8080948e+08
+    240000   313.34588     -47404.113      12472672       1.0189594      1.8082421e+08
+    245000   313.35942     -47688.541      12816840       0.96949288     1.8081232e+08
+    250000   313.36007     -47803.012      13165853       0.96456935     1.8080391e+08
+    255000   313.34509     -47497.302      13520336       0.99028368     1.8081106e+08
+    260000   313.35782     -47133.258      13879334       1.0361463      1.8081398e+08
+    265000   313.36537     -47308.085      14242232       1.0182032      1.8080154e+08
+    270000   313.36904     -47705.563      14610276       0.96830567     1.8079771e+08
+    275000   313.35769     -47733.483      14983681       0.9597909      1.8080597e+08
+    280000   313.33369     -47243.824      15361731       1.0291641      1.8081256e+08
+    285000   313.35216     -47827.751      15744039       0.95987114     1.8081108e+08
+    290000   313.38653     -47582.925      16129717       0.99190766     1.8078723e+08
+    295000   313.32841     -47393.272      16523563       0.99880543     1.8082115e+08
+    300000   313.3726      -47321.611      16919671       1.0276185      1.8081435e+08
+    305000   313.36945     -47706.981      17319800       0.9741942      1.8079702e+08
+    310000   313.36325     -47190.873      17725835       1.0499881      1.8079879e+08
+    315000   313.36419     -47517.66       18135498       0.98252584     1.8078426e+08
+    320000   313.35615     -47122.441      18551502       1.0428061      1.8079434e+08
+    325000   313.36541     -47539.931      18973248       0.97914421     1.8081861e+08
+    330000   313.34599     -47618.477      19397667       0.96577947     1.8081344e+08
+    335000   313.34209     -47288.211      19826009       1.0118321      1.8079774e+08
+    340000   313.35046     -47692.526      20260939       0.95156921     1.8080776e+08
+    345000   313.3745      -47660.767      20699885       0.98287737     1.808084e+08 
+    350000   313.34998     -47148.32       21143463       1.0525178      1.8080788e+08
+    355000   313.3672      -47822.312      21589513       0.92492195     1.807797e+08 
+    360000   313.33109     -47343.805      22043706       1.0380224      1.8079444e+08
+    365000   313.33776     -47907.717      22502912       0.94864591     1.8081235e+08
+    370000   313.35174     -48365.164      22961819       0.87501229     1.8077034e+08
+    375000   313.34265     -47188.173      23431809       1.0403098      1.8080367e+08
+    380000   313.35529     -47741.734      23902060       0.9687489      1.8078535e+08
+    385000   313.35014     -46954.25       24377439       1.0712391      1.8077234e+08
+    390000   313.3551      -47102.138      24860405       1.0451509      1.8079115e+08
+    395000   313.33452     -47122.33       25347812       1.0691657      1.8080651e+08
+    400000   313.33        -46976.525      25837867       1.0513603      1.8079951e+08
+    405000   313.38092     -46854.689      26331681       1.0750455      1.8078311e+08
+    410000   313.36406     -47151.317      26833521       1.0500989      1.8080069e+08
+    415000   313.34494     -47680.035      27338263       0.99812243     1.8079987e+08
+    420000   313.34791     -47666.185      27846503       0.94840032     1.8078718e+08
+    425000   313.36352     -47997.484      28360029       0.90259083     1.8078051e+08
+    430000   313.34413     -47292.981      28881407       1.0176935      1.8080358e+08
+    435000   313.34124     -47933.362      29404413       0.94272365     1.8079736e+08
+    440000   313.33539     -47538.247      29930664       0.99922425     1.8077821e+08
+    445000   313.34885     -48185.428      30464627       0.92140992     1.8078636e+08
+    450000   313.36154     -48466.056      31000410       0.87298506     1.8076903e+08
+    455000   313.36232     -47608.521      31545369       0.98845995     1.8079061e+08
+    460000   313.33573     -47290.875      32094359       1.0454127      1.8080584e+08
+    465000   313.35912     -47785.318      32642414       0.96210782     1.8077346e+08
+    470000   313.34593     -47473.913      33200556       0.9883364      1.8078628e+08
+    475000   313.32421     -47267.856      33764194       1.014018       1.8080495e+08
+    480000   313.36321     -47384.853      34328818       1.0065367      1.807936e+08 
+    485000   313.36211     -47505.48       34898199       0.99427546     1.8078296e+08
+    490000   313.35085     -47912.456      35478812       0.95492782     1.8082245e+08
+    495000   313.35723     -47180.509      36057366       1.0427294      1.8080985e+08
+    500000   313.372       -47211.312      36638355       1.0273382      1.8078083e+08
+    505000   313.35728     -47005.357      37226977       1.0499524      1.80774e+08  
+    510000   313.35407     -47395.154      37823926       1.0254935      1.8079331e+08
+    515000   313.33492     -47169.58       38425681       1.0219767      1.8081272e+08
+    520000   313.33495     -47281.074      39025119       1.0425963      1.8078272e+08
+    525000   313.31859     -47691.474      39639214       0.95995941     1.8082165e+08
+    530000   313.35472     -47605.265      40250671       0.9889093      1.8080991e+08
+    535000   313.34531     -48091.242      40869713

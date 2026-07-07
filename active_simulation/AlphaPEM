@@ -1,0 +1,2 @@
+moka@DESKTOP-IP3K6BT:~/polymer_sims/active_simulation$ cd /home/moka/AlphaPEM
+moka@DESKTOP-IP3K6BT:~/AlphaPEM$ julia run_web_app.jl
