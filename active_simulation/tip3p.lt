@@ -1,0 +1,15 @@
+TIP3P {
+  write_once("Data Masses") {
+    @atom:O  15.999
+    @atom:H   1.008
+  }
+  write("Data Atoms") {
+    $atom:o   $mol:.  @atom:O  -0.834   0.00000   0.00000   0.11779
+    $atom:h1  $mol:.  @atom:H   0.417   0.00000   0.75545  -0.47116
+    $atom:h2  $mol:.  @atom:H   0.417   0.00000  -0.75545  -0.47116
+  }
+  write("Data Bonds") {
+    $bond:b1  @bond:oh  $atom:o  $atom:h1
+    $bond:b2  @bond:oh  $atom:o  $atom:h2
+  }
+}

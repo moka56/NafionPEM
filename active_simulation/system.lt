@@ -1,0 +1,6 @@
+# system.lt
+import "nafion.lt"
+import "tip3p.lt"
+
+polymer = new NafionChain [100]
+water   = new TIP3P [6000]
