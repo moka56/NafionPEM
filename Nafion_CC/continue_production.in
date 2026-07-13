@@ -1,0 +1,94 @@
+# ==============================================================================
+# continue_production.in -- extend a production run from its latest
+# restart checkpoint, WITHOUT redoing minimization/NVT/NPT equilibration.
+#
+# Use this instead of re-running in.nafion whenever you want to push an
+# already-equilibrated trajectory further (2 ns -> 10 ns -> 20 ns -> 60 ns
+# etc). Each call picks up exactly where the last run left off.
+#
+# Usage:
+#   1. Edit EXTEND_STEPS below to how many MORE steps you want
+#      (1 ns = 1,000,000 steps at timestep=1.0 fs).
+#      Examples:
+#        +8,000,000  steps  (+8 ns)  to go from  2 ns -> 10 ns
+#        +10,000,000 steps  (+10 ns) to go from 10 ns -> 20 ns
+#        +40,000,000 steps  (+40 ns) to go from 20 ns -> 60 ns
+#   2. Point RESTART_FILE at the latest restart written by the previous run
+#      (in.nafion writes system_2ns.restart; continue_production.in writes
+#      restart.a / restart.b alternately every 500 ps during production,
+#      and a fresh system_<label>.restart at the very end of each call --
+#      always resume from the newest one).
+#   3. Run:  mpirun -np 4 lmp -in continue_production.in
+#
+# NOTE ON MSD ACROSS RESTARTS: LAMMPS "compute msd" measures displacement
+# from the position at the moment the compute is DEFINED, not from the
+# very start of the whole trajectory. Since this script re-defines
+# msd_hyd/msd_water fresh each time, msd_vs_time_${OUT_LABEL}.dat is only
+# valid for computing D over THIS extension window, not the cumulative
+# whole run. That's fine -- D from any sufficiently long diffusive window
+# is the same self-diffusion coefficient -- just don't try to concatenate
+# MSD files across extensions and expect a single continuous curve.
+# ==============================================================================
+
+variable        RESTART_FILE string "system_2ns.restart"   # <-- EDIT each time
+variable        EXTEND_STEPS equal  1700000                # <-- EDIT each time (8e6 = +8 ns)
+variable        OUT_LABEL     string "2ns"                # <-- EDIT: label for output files
+
+units           real
+atom_style      full
+boundary        p p p
+
+read_restart    ${RESTART_FILE}
+
+# styles + coefficients are NOT stored in a restart file -- must re-declare
+pair_style      lj/cut/coul/long 12.0 12.0
+kspace_style    pppm 1.0e-4
+bond_style      harmonic
+angle_style     harmonic
+dihedral_style  opls
+special_bonds   lj/coul 0.0 0.0 0.5
+pair_modify     mix geometric tail yes
+include         system.in.settings
+
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+# re-declare groups (also not stored in restart)
+variable        Otype equal 13
+variable        Htype equal 14
+group           water     type ${Otype} ${Htype}
+group           nafion    molecule <= 40
+group           hydronium type 11 12
+group           mobile    union hydronium water
+group           sulfonate type 10
+
+fix             rigidwat water shake 0.0001 20 500 b 18 a 36
+fix             nvt2 all nvt temp 300.0 300.0 100.0   # match TEMP used in in.nafion
+
+# --- re-attach the same computes/fixes as the production stage in in.nafion ---
+compute         msd_hyd   hydronium msd com yes
+compute         msd_water water     msd com yes
+fix             msd_out   all ave/time 100 1 100 c_msd_hyd[4] c_msd_water[4] &
+                file msd_vs_time_${OUT_LABEL}.dat title1 "# step  msd_hydronium(A^2)  msd_water(A^2)"
+
+compute         rdf_all all rdf 100 10 13 10 10
+fix             rdf_out all ave/time 1000 1 1000 c_rdf_all[*] file rdf_${OUT_LABEL}.dat mode vector
+
+compute         cc1 all chunk/atom bin/1d z lower 1.0 units box
+fix             dens_profile all ave/chunk 1000 1 1000 cc1 density/mass file density_profile_${OUT_LABEL}.dat
+
+dump            traj all custom 1000 production_${OUT_LABEL}.lammpstrj id mol type q xu yu zu
+dump_modify     traj sort id
+
+restart         500000 restart.a restart.b
+
+thermo          1000
+thermo_style    custom step temp press density etotal vol lx ly lz
+
+run             ${EXTEND_STEPS}
+
+write_data      system_${OUT_LABEL}.data
+write_restart   system_${OUT_LABEL}.restart
+
+print           "Extended to ${OUT_LABEL}. Next call: set RESTART_FILE = system_${OUT_LABEL}.restart"
+

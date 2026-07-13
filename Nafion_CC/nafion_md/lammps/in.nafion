@@ -1,0 +1,207 @@
+# ==============================================================================
+# in.nafion -- Hydrated Nafion PEM: equilibration + production analysis
+#
+# System: 40 x Nafion 20-mer chains (1 x -SO3- per chain, branch at monomer
+#         10) + 40 x H3O+ + water (lambda = 22 H2O / -SO3-)
+# Built by: build_chain.py -> make_topology.py -> packmol -> moltemplate
+#
+# ------------------------------------------------------------------------
+# STAGED WORKFLOW (per collaborator guidance) -- READ BEFORE RUNNING:
+#   1. minimize                  -> relax packmol overlaps
+#   2. 500 ps NVT                -> equilibration, settle temperature
+#   3. 2 ns NPT                  -> equilibration, settle density/volume
+#      (density/volume should look FLAT by the end of this, not still
+#       trending -- if it's still trending, extend Stage 3 before
+#       moving on)
+#   4. production NVT, run to 2 ns FIRST as a sanity check only
+#      (confirms nothing is broken: temp stable, MSD not garbage, no
+#       NaNs) -- do NOT trust diffusion/conductivity numbers from this
+#       2 ns checkpoint, it's too short
+#
+# After that initial 2 ns production checkpoint looks sane, DO NOT restart
+# from scratch -- extend the SAME trajectory using continue_production.in
+# (reads the restart file this script writes, keeps running, writes a new
+# restart file). Repeat as needed:
+#   +8 ns  (-> 10 ns total)  = trustworthy WATER DIFFUSION coefficients
+#   +10 ns (-> 20 ns total)  = trustworthy MORPHOLOGY / channel structure
+#   +10-80 ns (-> 30-100 ns total) = trustworthy TRANSPORT/CONDUCTIVITY
+#     (publication-quality Nernst-Einstein sigma)
+#
+# Run:  lmp -in in.nafion                    (serial)
+#       mpirun -np 4 lmp -in in.nafion       (parallel)
+# Then: mpirun -np 4 lmp -in continue_production.in   (to extend further)
+# ==============================================================================
+
+units           real
+atom_style      full
+boundary        p p p
+
+# ------------------------------------------------------------------------
+# *** 12-HOUR BUDGET VERSION ***
+# Stage lengths below have been SHORTENED from the original recommended
+# 500 ps NVT / 2 ns NPT / 2 ns production down to 100 ps / 400 ps / 300 ps
+# so the whole thing fits a ~12 hour wall-clock budget on a laptop.
+# Consequence: density/volume equilibration (Stage 3) and the production
+# checkpoint (Stage 4) are LESS converged than the original recommendation.
+# Treat results from this run as preliminary -- once it completes cleanly,
+# use continue_production.in to extend Stage 4 further as time allows.
+# A restart checkpoint (restart.a/restart.b) is now written every 25,000
+# steps starting right after minimization, covering NVT+NPT+production, so
+# a crash partway through no longer loses all progress -- resume with
+# continue_production.in pointed at the latest restart.a or restart.b.
+# ------------------------------------------------------------------------
+
+variable        TEMP equal 300.0   # override: lmp -var TEMP 353.15 -in in.nafion
+
+# ---------------------------------------------------------------- styles ----
+# (styles must be declared before "include system.in.settings", since that
+# file contains pair_coeff/bond_coeff/angle_coeff/dihedral_coeff commands
+# which require the corresponding style to already be set)
+pair_style      lj/cut/coul/long 12.0 12.0
+kspace_style    pppm 1.0e-4
+bond_style      harmonic
+angle_style     harmonic
+dihedral_style  opls
+special_bonds   lj/coul 0.0 0.0 0.5   # standard OPLS-style 1-4 scaling
+pair_modify     mix geometric tail yes
+
+# ---------------------------------------------------------------- topology --
+read_data       system.data
+
+include         system.in.settings
+
+# SHAKE keeps SPC/E water rigid (bond+angle constraints). Water atom types
+# are @atom:O -> type 13 and @atom:H -> type 14 (see system.data Masses).
+# Bond type 18 / angle type 36 are the SPC/E O-H bond and H-O-H angle
+# (identified by their placeholder 1000.00 force constants in
+# system.in.settings). *** IMPORTANT: re-verify these two numbers any time
+# you regenerate the topology (new chain length, new composition, etc.) --
+# moltemplate re-numbers bond/angle types whenever the .lt files change.
+# Check with:  grep -n "1000.00" system.in.settings
+variable        Otype equal 13
+variable        Htype equal 14
+group           water type ${Otype} ${Htype}
+fix             rigidwat water shake 0.0001 20 500 b 18 a 36
+
+# ------------------------------------------------------------- neighbor -----
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+# --------------------------------------------------------------- groups -----
+group           nafion  molecule <= 40
+group           hydronium type 11 12
+group           mobile  union hydronium water
+
+# ------------------------------------------------------------ thermo -------
+thermo          500
+thermo_style    custom step temp press density etotal ke pe elong vol lx ly lz
+
+# =============================================================================
+# STAGE 1: energy minimization (relax packmol overlaps)
+# =============================================================================
+minimize        1.0e-4 1.0e-6 5000 50000
+
+reset_timestep  0
+velocity        all create ${TEMP} 4928459 mom yes rot yes dist gaussian
+
+# Checkpoint from HERE ONWARD -- covers NVT, NPT, AND production, so a
+# crash during equilibration (not just production) can be resumed.
+restart         25000 restart.a restart.b
+
+# =============================================================================
+# STAGE 2: 500 ps NVT equilibration (settle temperature; short/stiff
+# timestep guard while SHAKE settles)
+# =============================================================================
+timestep        1.0
+fix             nvt1 all nvt temp ${TEMP} ${TEMP} 100.0
+run             100000     # SHORTENED to 100 ps for a 12h-budget checkpoint
+                          # (was 500 ps -- extend later once you have headroom)
+unfix           nvt1
+
+# =============================================================================
+# STAGE 3: 2 ns NPT equilibration -- membrane SWELLS/relaxes to its
+# equilibrium hydrated density/volume at 1 atm and ${TEMP}. Check
+# density_vs_time.dat / the thermo "Density" column: it should look FLAT
+# by the end of this stage. If it's still trending up or down, don't trust
+# Stage 4 yet -- extend this run (bump "run 2000000" below) before
+# continuing.
+# =============================================================================
+timestep        1.0
+fix             npt1 all npt temp ${TEMP} ${TEMP} 100.0 iso 1.0 1.0 1000.0
+variable        dens_now equal density
+fix             dens1 all ave/time 100 10 1000 v_dens_now file density_vs_time.dat
+run             400000     # SHORTENED to 400 ps for a 12h-budget checkpoint
+                          # (was 2 ns -- density/volume will be LESS converged;
+                          #  treat swelling numbers from this run as preliminary)
+unfix           npt1
+
+# record equilibrated box for swelling-ratio analysis (compare to a
+# separately-run DRY membrane box, see README section "Swelling")
+variable        Lx_eq equal lx
+variable        Ly_eq equal ly
+variable        Lz_eq equal lz
+variable        Vol_eq equal vol
+print           "EQUILIBRATED BOX (hydrated): Lx=${Lx_eq} Ly=${Ly_eq} Lz=${Lz_eq} V=${Vol_eq}" file swelling.dat
+
+# =============================================================================
+# STAGE 4: production NVT run (transport properties: diffusion, MSD, RDF,
+# morphology). NVT (fixed, equilibrated volume) so MSD is not corrupted by
+# ongoing box-volume fluctuations.
+#
+# This script itself only runs the first 2 ns as a SANITY-CHECK checkpoint
+# (confirm temp/density/MSD look reasonable, no NaNs). To go further,
+# use continue_production.in afterward -- do NOT re-run this whole script,
+# that would throw away Stages 1-3 and start equilibration over.
+# =============================================================================
+fix             nvt2 all nvt temp ${TEMP} ${TEMP} 100.0
+
+# --- mean-squared displacement of each mobile species (unwrapped coords) ---
+compute         msd_hyd   hydronium msd com yes
+compute         msd_water water     msd com yes
+fix             msd_out   all ave/time 100 1 100 c_msd_hyd[4] c_msd_water[4] &
+                file msd_vs_time.dat title1 "# step  msd_hydronium(A^2)  msd_water(A^2)"
+
+# --- radial distribution functions: sulfonate S ... water O, and S...S ---
+group           sulfonate type 10
+compute         rdf_all all rdf 100 10 13 10 10
+fix             rdf_out all ave/time 1000 1 1000 c_rdf_all[*] file rdf.dat mode vector
+
+# --- density profile (useful for channel/cluster morphology) ---
+compute         cc1 all chunk/atom bin/1d z lower 1.0 units box
+fix             dens_profile all ave/chunk 1000 1 1000 cc1 density/mass file density_profile.dat
+
+dump            traj all custom 1000 production.lammpstrj id mol type q xu yu zu
+dump_modify     traj sort id
+
+thermo          1000
+run             300000    # SHORTENED to 300 ps for a 12h-budget checkpoint
+                          # (was 2 ns -- this is now an EVEN ROUGHER sanity
+                          #  check than before; use continue_production.in
+                          #  to extend once you confirm this finishes cleanly)
+
+write_data      system_checkpoint1.data
+write_restart   system_checkpoint1.restart
+
+# =============================================================================
+# Post-processing (done in Python, see analysis/compute_transport.py):
+#   1. Diffusion coefficient from MSD slope (Einstein relation):
+#        D = slope(MSD vs t) / 6      [3D diffusion]
+#   2. Approximate (vehicular) proton conductivity via Nernst-Einstein:
+#        sigma = (N_carrier * q^2 * F^2 / (V * R * T)) * D_hydronium
+#      (or the more general multi-species Nernst-Einstein sum -- see
+#      analysis/compute_transport.py, which reads msd_vs_time.dat directly)
+#   3. Water uptake / swelling ratio:
+#        lambda (H2O per SO3-) is fixed by system composition (set in
+#        pack_system.inp); the SWELLING metric is the volume/length change
+#        vs. a dry-membrane reference run -- see moltemplate/dry/.
+#            volumetric swelling (%) = 100 * (V_eq - V_dry) / V_dry
+#
+# TIMESCALE GUIDANCE (per email):
+#   2 ns  production  -> sanity check only (this script)
+#   10 ns production   -> trustworthy water/hydronium diffusion coefficients
+#   20 ns production   -> trustworthy morphology / channel structure
+#   30-100 ns production -> trustworthy transport/conductivity (publication)
+#   Use continue_production.in to extend toward these incrementally --
+#   it's the SAME trajectory, not a new simulation.
+# =============================================================================
+

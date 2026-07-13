@@ -1,1 +1,16 @@
+# Hard Blocked Folders
+active_simulation/
+moltemplate/
+
+# Simulation Data and File Extensions to Block
+*.data
+*.settings
+*.pdb
+*.in.settings
+*.in.charges
+*.in.init
 log.lammps
+
+# Python Artifacts
+__pycache__/
+*.pyc

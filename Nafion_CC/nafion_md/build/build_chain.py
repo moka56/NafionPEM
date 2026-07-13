@@ -2,26 +2,20 @@
 """
 build_chain.py
 ---------------
-Builds one Nafion oligomer chain matching the structure in the reference
-image:
+Builds one Nafion oligomer chain:
 
     backbone:  -(CF2-CF2)x-(CF2-CF)y-
     side chain hung off each "y" backbone carbon:
         -O-[CF2-CF(CF3)]z-O-CF2-CF2-SO3H
 
-Per the user's spec:
-  * 10 monomer units total per chain (x + y = 10)
+specs:
+  * 20 monomer units total per chain (x + y = 20)
   * exactly ONE monomer carries a side chain (y = 1)  -> exactly one -SO3H
-    per chain (the -SO3- group itself is NOT part of the bracketed repeat
-    unit, matching the drawing)
+    per chain
   * z = 1 (standard Nafion side chain length: one -CF2-CF(CF3)- unit
     between the two ether oxygens; this is the classic Nafion side chain,
     as opposed to the longer "Aquivion"-type z>1 side chains)
 
-The backbone is built as a finite, CF3-capped oligomer (20 backbone
-carbons = 10 monomer units). This is the standard simplification used in
-classical MD studies of short Nafion fragments -- an infinite/very long
-real chain is approximated by a saturated, capped oligomer segment.
 
 Output: chain.pdb  (single neutral, protonated -SO3H chain, all-atom,
         explicit H only on the acidic proton)
@@ -33,8 +27,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 import numpy as np
 
-N_MONOMERS = 10        # total backbone monomer units in the chain
-BRANCH_MONOMER_INDEX = 5  # which monomer (0-indexed) carries the side chain
+N_MONOMERS = 20        # total backbone monomer units in the chain
+BRANCH_MONOMER_INDEX = 10  # which monomer (0-indexed) carries the side chain
 
 def build_chain(deprotonate=False):
     mol = Chem.RWMol()

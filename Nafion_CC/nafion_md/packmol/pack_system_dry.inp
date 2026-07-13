@@ -1,0 +1,15 @@
+tolerance 2.0
+nloop 300
+filetype pdb
+output packed_system_dry.pdb
+seed 12345
+
+structure /home/moka/polymer_sims/Nafion_CC/nafion_md/build/chain_deprotonated.pdb
+  number 40
+  inside cube 0. 0. 0. 52.53
+end structure
+
+structure /home/moka/polymer_sims/Nafion_CC/nafion_md/build/hydronium.pdb
+  number 40
+  inside cube 0. 0. 0. 52.53
+end structure
